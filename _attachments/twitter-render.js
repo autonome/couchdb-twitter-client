@@ -108,8 +108,8 @@ function TwitterRender(tw) {
   var colorCache = {};
   
   var publicMethods = {
-    renderTimeline : function(tweets, userid) {
-      $("#tweets ul").html($.map(tweets, function(tweet) {
+    renderTimeline : function(el, tweets, userid) {
+      $(el).children("ul").html($.map(tweets, function(tweet) {
         var cls = false, color, dim, bright;
         if (userid && tweet.in_reply_to_user_id && tweet.in_reply_to_user_id == userid) {
           cls = "reply";
@@ -135,8 +135,8 @@ function TwitterRender(tw) {
           + (tweet.source?' via ' + tweet.source:'')
           + '</span><br class="clear"/></li>'; 
       }).join(''));
-      $("#tweets ul .created_at a").attr("target","_blank");
-      $("#tweets img.profile").click(tweetUserDetails);
+      $(el).children("ul .created_at a").attr("target","_blank");
+      $(el).children("img.profile").click(tweetUserDetails);
     }
   };
   return publicMethods;

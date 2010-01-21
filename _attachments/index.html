@@ -6,7 +6,33 @@
     <link rel="stylesheet" href="screen.css" type="text/css">
   </head>
   <body>
-    <div id="tweets"> 
+    <div class="tweets" id="meta">
+      app:
+      <ul>
+        <li>column scrolling
+        <li>fix local cache
+        <li>list support (column per)
+        <li>saved search support (column per)
+        <li>configurable api usage
+        <li>oauth
+      </ul>
+
+      analysis:
+      <ul>
+        <li>develop scoring system
+        <li>extract and store significant terms and people from user timeline
+        <li>extract and store significant terms and people from favorited
+        <li>score tweets based on matches in significant terms and people
+      </ul>
+      <div id="log"> 
+      </div>
+    </div>
+    <div class="tweets" id="tweets-all"> 
+      <div class="header">All tweets</div>
+      <ul></ul> 
+    </div>
+    <div class="tweets" id="tweets-mentions"> 
+      <div class="header">Mentions</div>
       <ul></ul> 
     </div>
     <div id="controls-wrap">
@@ -26,14 +52,18 @@
     </div>
   </body>
   <script src="/_utils/script/json2.js"></script>
-  <script src="/_utils/script/jquery.js?1.2.6"></script>
-  <script src="/_utils/script/jquery.couch.js?0.8.0"></script>
-  <script src="/_utils/script/jquery.cookies.js"></script>
+  <script src="/_utils/script/jquery.js?1.3.1"></script>
+  <script src="/_utils/script/jquery.couch.js?0.9.0"></script>
+  <script src="/_utils/script/jquery.cookies.js?0.9.0"></script>
   <script src="jquery.xdompost.js"></script>
   <script src="md4.js"></script>
   <script src="twitter-couch.js"></script>
   <script src="twitter-render.js"></script>
   <script type="text/javascript" charset="utf-8">
+    function log(txt) {
+      $("#log").append(txt + "<br>");
+    }
+
     $(function() {
 
       $('#refreshTweets').ajaxStart(function() {
@@ -46,10 +76,13 @@
 
       setInterval(function() {
         $('#refreshTweets').removeClass('loading');
-      },1000*30);
+      }, 1000*30);
 
-      var db = $.couch.db(document.location.href.split('/')[3]);
-      var design = new CouchDesign(db, unescape(document.location.href).split('/')[5]);
+      var dbName = document.location.href.split('/')[3];
+      var designName = unescape(document.location.href).split('/')[5];
+
+      var db = $.couch.db(dbName);
+      var design = new CouchDesign(db, designName);
 
       function updateCount() {
         var len = $('#updateStatus textarea').val().length;
@@ -59,34 +92,47 @@
       TwitterCouch(db, design, function(tw, userID) {
         var r = TwitterRender(tw);
 
-        var knownTweets = {};
-        function applyTweets(tweets) {
+        var knownTweets = {
+          all: [],
+          mentions: []
+        };
+
+        // TODO: re-enable local cache
+        function applyTweets(tweets, type) {
+          /*
           $.each(tweets, function() {
             var id = this.id.toString();
-            if (knownTweets[id]) {
+            if (knownTweets[type][id]) {
               // we've got the tweet
-              if (!knownTweets[id].source && this.source) {
+              if (!knownTweets[type][id].source && this.source) {
                 // but it's a search and here's the real one
-                this.search = knownTweets[id].search;
-                knownTweets[id] = this;
+                this.search = knownTweets[type][id].search;
+                knownTweets[type][id] = this;
               }
             } else {
               // store it for the same time
-              knownTweets[id] = this;
+              knownTweets[type][id] = this;
             }
           });
+
           // return tweets sorted in descending order;
           var allTweets = [];
-          $.each(knownTweets,function(k,v) {
+          $.each(knownTweets[type], function(k,v) {
             allTweets.push(v);
           });
-          return allTweets.sort(function(a,b) {
+          */
+
+          return tweets.sort(function(a,b) {
             return b.id - a.id;
           });
         };
         
         function renderAllTweets(tweets) {
-          r.renderTimeline(applyTweets(tweets), userID);
+          r.renderTimeline($("#tweets-all").get(), applyTweets(tweets, "all"), userID);
+        };
+
+        function renderMentions(tweets) {
+          r.renderTimeline($("#tweets-mentions").get(), applyTweets(tweets, "mentions"), userID);
         };
         
         function refreshTweets(terms, force) {
@@ -94,40 +140,48 @@
           terms = terms || [];
           
           tw.friendsTimeline(renderAllTweets, force);
+
+          tw.mentions(renderMentions, force);
+
           for (var i=0; i < terms.length; i++) {
-            tw.searchTerm(terms[i],renderAllTweets);            
-          };
+            tw.searchTerm(terms[i],renderAllTweets);
+          }
         };
         
+        // Get the user's settings from couch and initialize the UI
         tw.userSettings(function(settings) {
-          // load the initial tweets
+          // Load the initial tweets
           refreshTweets(settings.searches, false);
-          
-          // refresh on click
+
+          // Refresh on click
           $('a[href="#refreshTweets"]').click(function() {
             refreshTweets(settings.searches, true);
             return false;
           });
-          
-          // auto refresh
+
+          // Set up auto refresh of tweets
+          // defaulting to every 5 minutes
           setInterval(function() {
             refreshTweets(settings.searches, true);
-          },1000*60*5);          
+          }, 1000 * 60 * 5);
         });
         
+        // User tweeted
         $('#updateStatus').submit(function(e) {
           e.preventDefault();
           var status = $('#updateStatus textarea').val();
           tw.updateStatus(status);
           $('#updateStatus textarea').val('');
           updateCount();
+
+          // Refresh timeline
           setTimeout(function() {
             tw.friendsTimeline(renderAllTweets, true);
-            // tw.friendsTimeline(r.renderTimeline, true);            
-          },500);
+          }, 500);
         });
       });
 
+      // Listen for changes to the textarea, update the character count
       $('#updateStatus textarea').keypress(function() {
         setTimeout(updateCount,20);
       });

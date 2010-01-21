@@ -1,12 +1,14 @@
 function CouchDesign(db, name) {
   this.view = function(view, opts) {
-    db.view(name+'/'+view, opts);
+    db.view(name + '/' + view, opts);
   };
 };
 
 function TwitterCouch(db, design, callback) {  
   var currentTwitterID = null;
   var host = "twitter.com";
+
+  // shortcut if you don't need full URL construction
   function getJSON(path, params, cb) {
     var url = "http://"+host+path+".json?callback=?";
     $.getJSON(url, params, cb);
@@ -32,19 +34,53 @@ function TwitterCouch(db, design, callback) {
     return values;
   };
 
-  function viewFriendsTimeline(userId, cb) {
-    design.view('friendsTimeline',{
-      startkey : [userId,{}],
-      endkey : [userId],
-      group :true,
-      descending : true,
-      limit : 80,
-      success : function(json){
-        cb(uniqueValues(json.rows), currentTwitterID);
+  // Twitter API call metering
+  function apiCallProceed(force) {
+    var previousCall = $.cookies.get('twitter-last-call');
+    var d  = new Date;
+    var now = d.getTime();
+    if (!previousCall) {
+      $.cookies.set('twitter-last-call', now);
+      return true;
+    } else {
+      var minutes = force ? 1 : 3;
+      if (now - previousCall > 1000 * 60 * minutes) {
+        $.cookies.set('twitter-last-call', now);
+        return true;
+      } else {
+        return false;
       }
-    });
+    }
   };
-  
+
+  // login, init App
+  function getTwitterID(cb) {
+    // TODO: what about when they are not logged in?
+    var cookieID = $.cookies.get('twitter-user-id');
+    if (cookieID) {
+      currentTwitterID = cookieID;
+      // pass self to the user
+      cb(publicMethods, currentTwitterID);
+    } else {
+      // this is hackish to get around the broken twitter cache
+      // TODO: fix
+      var hasUserInfo = false;
+      window.userInfo = function(data) {
+        currentTwitterID = data[0].user.id;
+        $.cookies.set('twitter-user-id', currentTwitterID);
+        hasUserInfo = true;
+        cb(publicMethods, currentTwitterID);
+      };
+
+      setTimeout(function() {
+        if (hasUserInfo) return;
+        alert("There seems to have been a problem getting your logged in twitter info. Please log into Twitter via twitter.com, and then return to this page.")
+      },2000);
+
+      cheapJSONP("http://"+host+"/statuses/user_timeline.json?limit=1&callback=userInfo");      
+    }
+  };
+
   //// WORD CLOUD
   // words are displayed at a size that is a function of the global set of words, 
   // compared with the user's most-used words. all this stuff with callbacks here 
@@ -59,7 +95,7 @@ function TwitterCouch(db, design, callback) {
   // global word count
   var gWC = null;
   function buildGWC(cb) {
-    design.view('globalWordCount',{
+    design.view('globalWordCount', {
       success : function(data) {
         var tWords = data.rows[0].value;
         design.view('globalWordCount',{
@@ -158,51 +194,7 @@ function TwitterCouch(db, design, callback) {
     });
   };
   
-  // twitter api core
-  function apiCallProceed(force) {
-    var previousCall = $.cookies.get('twitter-last-call');
-    var d  = new Date;
-    var now = d.getTime();
-    if (!previousCall) {
-      $.cookies.set('twitter-last-call', now);
-      return true;
-    } else {
-      var minutes = force ? 1 : 3;
-      if (now - previousCall > 1000 * 60 * minutes) {
-        $.cookies.set('twitter-last-call', now);
-        return true;
-      } else {
-        return false;
-      }
-    }
-  };
-
-  // login, init App
-  function getTwitterID(cb) {
-    // todo what about when they are not logged in?
-    var cookieID = $.cookies.get('twitter-user-id');
-    if (cookieID) {
-      currentTwitterID = cookieID;
-      // pass self to the user
-      cb(publicMethods, currentTwitterID);
-    } else {
-      // this is hackish to get around the broken twitter cache
-      var hasUserInfo = false;
-      window.userInfo = function(data) {
-        currentTwitterID = data[0].user.id;
-        $.cookies.set('twitter-user-id', currentTwitterID);
-        hasUserInfo = true;
-        cb(publicMethods, currentTwitterID);
-      };
-      setTimeout(function() {
-        if (hasUserInfo) return;
-        alert("There seems to have been a problem getting your logged in twitter info. Please log into Twitter via twitter.com, and then return to this page.")
-      },2000);
-      cheapJSONP("http://"+host+"/statuses/user_timeline.json?limit=1&callback=userInfo");      
-    }
-  };
-  
-  // a user's recent tweets
+  // API call for a user's recent tweets
   function getUserTimeline(userid, cb) {
     getJSON("/statuses/user_timeline/"+userid, {limit:200}, function(tweets) {
       var doc = {
@@ -213,9 +205,9 @@ function TwitterCouch(db, design, callback) {
     });
   };
   
-  // timeline for the logged in user
+  // API call for timeline for the logged in user
   function getFriendsTimeline(cb, opts) {
-    getJSON("/statuses/friends_timeline", opts, function(tweets) {
+    getJSON("/statuses/home_timeline", opts, function(tweets) {
       if (tweets.length > 0) {
         tweets.length = Math.min(tweets.length, 200);
         var doc = {
@@ -226,10 +218,57 @@ function TwitterCouch(db, design, callback) {
           viewFriendsTimeline(currentTwitterID, cb);
         }});
       } // we'd need an else here if the timeline wasn't already displayed
-    });    
+    });
   };
   
-  //// search
+  // Fetch friends timeline from couch for a user
+  function viewFriendsTimeline(userId, cb) {
+    design.view('friendsTimeline', {
+      startkey : [userId, {}],
+      endkey : [userId],
+      descending : true,
+      limit : 80,
+      success : function(json){
+        cb(uniqueValues(json.rows), currentTwitterID);
+      },
+      error : function() {
+      }
+    });
+  };
+
+  // API call for mentions for the logged in user
+  function getMentions(cb, opts) {
+    getJSON("/statuses/mentions", opts, function(tweets) {
+      if (tweets.length > 0) {
+        tweets.length = Math.min(tweets.length, 200);
+        var doc = {
+          tweets : tweets,
+          mentionsOwner : currentTwitterID
+        };
+        db.saveDoc(doc, {success:function() {
+          viewMentions(currentTwitterID, cb);
+        }});
+      } // we'd need an else here if the timeline wasn't already displayed
+    });
+  };
+  
+  // Fetch mentions from couch for a user
+  function viewMentions(userId, cb) {
+    design.view('mentions', {
+      startkey : [userId, {}],
+      endkey : [userId],
+      descending : true,
+      limit : 80,
+      success : function(json){
+        cb(uniqueValues(json.rows), currentTwitterID);
+      },
+      error : function() {
+        // do something
+      }
+    });
+  };
+  
+  // TODO: document me
   function searchToTweet(r, term) {
     return {
       search : term,
@@ -244,11 +283,11 @@ function TwitterCouch(db, design, callback) {
     }
   };
   
+  // Fetch search results from couch
   function viewSearchResults(term, cb) {
     design.view('searchResults',{
       startkey : [term,{}],
       endkey : [term],
-      group :true,
       descending : true,
       limit : 80,
       success : function(json){
@@ -257,6 +296,7 @@ function TwitterCouch(db, design, callback) {
     });
   };
   
+  // API call to fetch search results
   function getSearchResults(term, since_id, cb) {
     $.getJSON("http://search.twitter.com/search.json?callback=?", {q:term, since_id:since_id}, function(json) {
       var tweets = $.map(json.results,function(t) {
@@ -291,6 +331,19 @@ function TwitterCouch(db, design, callback) {
             opts.since_id = newestTweet.id;
           }
           getFriendsTimeline(cb, opts);
+        }
+      });
+    },
+    mentions: function(cb, force) {
+      viewMentions(currentTwitterID, function(storedTweets) {
+        cb(storedTweets, currentTwitterID);
+        if (apiCallProceed(force)) {
+          var newestTweet = storedTweets[0];
+          var opts = {};
+          if (newestTweet) {
+            opts.since_id = newestTweet.id;
+          }
+          getMentions(cb, opts);
         }
       });
     },
@@ -346,8 +399,8 @@ function TwitterCouch(db, design, callback) {
       });
     },
     userSettings : function(cb) {
-      var docid = "settings:"+currentTwitterID;
-      db.openDoc(docid,{
+      var docid = "settings:" + currentTwitterID;
+      db.openDoc(docid, {
         success : function(doc) {
           cb(doc);
         },
@@ -358,6 +411,6 @@ function TwitterCouch(db, design, callback) {
     }
   };
   
-  // init App, run callback
+  // init app data
   getTwitterID(callback);
 };

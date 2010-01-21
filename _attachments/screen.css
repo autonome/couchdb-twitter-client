@@ -17,68 +17,67 @@ h1 {
 }
 
 strong {
-  font-weight:bold;
+  font-weight: bold;
 }
 
-#tweets li {
+.tweets {
+  margin-bottom: 105px;
+  width: 400px;
+  float: left;
+}
+
+.tweets ul {
+}
+
+.tweets li {
   background:#333;
   margin:5px;
   padding:5px;
 }
 
-#tweets li.reply {
+.tweets li.reply {
   background:#336;
 }
 
-#tweets a.search {
+.tweets a.search {
   float:right;
   font-size:0.8em;
   color: #77b;
 }
 
-#tweets h3 {
+.tweets h3 {
   font-weight:bold;
 }
 
-#tweets p {
+.tweets p {
   margin-bottom:3px;
 }
 
-#tweets h3 a {
+.tweets h3 a {
   color:#fff;
 }
 
-#tweets img.profile {
+.tweets img.profile {
   float:left;
   padding-right:5px;
   width:48px;
   height:48px;
 }
 
-br.clear {
-  clear:both;
-  height:1px;
-}
-
-#tweets .created_at {
+.tweets .created_at {
   float:right;
   font-size:0.8em;
   color:#777;
 }
-#tweets .created_at a {
+.tweets .created_at a {
   color: #77b;
-}
-
-
-#tweets {
-  margin-bottom:105px;
 }
 
 .user-details {
   background:#222;
   padding:5px;
   margin:5px 20px 0 20px;
-/*  border:2px inset #000;*/
+  /*border:2px inset #000;*/
 }
 
 .user-details dl {
@@ -109,7 +108,6 @@ br.clear {
   width:100%;
   background:#000;
 }
-
 
 #controls {
   padding:5px;
@@ -180,4 +178,13 @@ form#searches p {
 p#about {
   float:right;
   font-size:0.8em;
+}
+
+br.clear {
+  clear:both;
+  height:1px;
+}
+
+.tweets#meta {
+  width: 200px;
 }
